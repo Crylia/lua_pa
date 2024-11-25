@@ -35,7 +35,7 @@ build = {
       lua_pa = {
          sources = 'src/lua_pa.c',
          headers = 'src/lua_pa.h',
-         libraries = { 'pulse', 'math' },
+         libraries = { 'pulse', 'm' },
       },
    },
    install = {
