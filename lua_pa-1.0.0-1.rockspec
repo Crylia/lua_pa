@@ -23,6 +23,7 @@ dependencies = {
 external_dependencies = {
    LIBPULSE = {
       header = 'pulse/pulseaudio.h',
+      library = 'pulse',
    },
 }
 test_dependencies = {
@@ -34,6 +35,7 @@ build = {
       lua_pa = {
          sources = 'src/lua_pa.c',
          headers = 'src/lua_pa.h',
+         libraries = { 'pulse', 'math' },
       },
    },
    install = {
