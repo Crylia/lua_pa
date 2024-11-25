@@ -11,22 +11,46 @@ static size_t num_sinks = 0;
 static active_sink_sources_t* active_sources = NULL;
 static size_t num_sources = 0;
 
-static int do_pcall_execute = 0;
-
-static void* check_for_pcall_workaround(void* userdata) {
-	lua_State* L = (lua_State*)userdata;
-
-	for (;;) {
-		while (do_pcall_execute == 0)
-			usleep(10);
-
-		if (lua_pcall(L, do_pcall_execute, 0, 0) != 0) {
-			lua_pushstring(L, "Error in signal handler");
-			lua_error(L);
-		}
-
-		do_pcall_execute = 0;
+static pa_sink_info* deep_copy_sink_info(const pa_sink_info* info) {
+	pa_sink_info* info_copy = malloc(sizeof(pa_sink_info));
+	if (!info_copy) {
+		fprintf(stderr, "ERROR: Memory allocation failed for sink info copy.\n");
+		return NULL;
 	}
+	*info_copy = *info;
+
+	if (info->name) {
+		info_copy->name = strdup(info->name);
+		if (!info_copy->name) {
+			fprintf(stderr, "ERROR: Memory allocation failed for sink name copy.\n");
+			free(info_copy);
+			return NULL;
+		}
+	} else {
+		info_copy->name = NULL;
+	}
+	return info_copy;
+}
+
+static pa_source_info* deep_copy_source_info(const pa_source_info* info) {
+	pa_source_info* info_copy = malloc(sizeof(pa_source_info));
+	if (!info_copy) {
+		fprintf(stderr, "ERROR: Memory allocation failed for source info copy.\n");
+		return NULL;
+	}
+	*info_copy = *info;
+
+	if (info->name) {
+		info_copy->name = strdup(info->name);
+		if (!info_copy->name) {
+			fprintf(stderr, "ERROR: Memory allocation failed for source name copy.\n");
+			free(info_copy);
+			return NULL;
+		}
+	} else {
+		info_copy->name = NULL;
+	}
+	return info_copy;
 }
 
 static int lua_sink_factory(lua_State* L, const pa_sink_info* info) {
@@ -425,7 +449,7 @@ static int lua_pa_get_default_source(lua_State* L) {
 	return 1;
 }
 
-static void context_state_cb(pa_context* c, void* userdata) {
+static void context_state_cb(pa_context* c, void* userdata __attribute__((unused))) {
 	if (!pa_state || !pa_state->mainloop) return;
 
 	pa_context_state_t state = pa_context_get_state(c);
@@ -444,11 +468,11 @@ static void context_state_cb(pa_context* c, void* userdata) {
 	}
 }
 
-static void lua_pa_successful_callback(pa_context* c, int success, void* userdata) {
+static void lua_pa_successful_callback(pa_context* c __attribute__((unused)), int success __attribute__((unused)), void* userdata __attribute__((unused))) {
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void sink_info_cb(pa_context* c, const pa_sink_info* info, int eol, void* userdata) {
+static void sink_info_cb(pa_context* c __attribute__((unused)), const pa_sink_info* info, int eol, void* userdata) {
 	if (eol < 0 || !info || !pa_state || !pa_state->mainloop) return;
 
 	lua_State* L = (lua_State*)userdata;
@@ -460,24 +484,118 @@ static void sink_info_cb(pa_context* c, const pa_sink_info* info, int eol, void*
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void signal_sink_info_cb(pa_context* c, const pa_sink_info* info, int eol, void* userdata) {
+static void* trigger_signal_7_sink(void* userdata) {
+	arg_list* al = (arg_list*)userdata;
+	pa_sink_info* info = (pa_sink_info*)al->info;
+	lua_pa_trigger_signal(
+		al->signal_name,
+		al->types,
+		info->description,
+		info->name,
+		info->index,
+		(int)round(100 * pow(10, pa_sw_volume_to_dB(pa_cvolume_avg(&info->volume)) / 60)),
+		info->mute
+	);
+
+	free(info);
+	free(al);
+
+	pthread_mutex_unlock(&pa_state->mutex);
+
+	return NULL;
+}
+
+static void* trigger_signal_7_source(void* userdata) {
+	arg_list* al = (arg_list*)userdata;
+	pa_source_info* info = (pa_source_info*)al->info;
+	lua_pa_trigger_signal(
+		al->signal_name,
+		al->types,
+		info->description,
+		info->name,
+		info->index,
+		(int)round(100 * pow(10, pa_sw_volume_to_dB(pa_cvolume_avg(&info->volume)) / 60)),
+		info->mute
+	);
+
+	free(info);
+	free(al);
+
+	pthread_mutex_unlock(&pa_state->mutex);
+
+	return NULL;
+}
+
+static void* trigger_signal_3(void* userdata) {
+	arg_list* al = (arg_list*)userdata;
+
+	lua_pa_trigger_signal(
+		al->signal_name,
+		al->types,
+		al->info
+	);
+
+	free(al);
+
+	pthread_mutex_unlock(&pa_state->mutex);
+
+	return NULL;
+}
+
+static void* trigger_signal_3_source(void* userdata) {
+	arg_list* al = (arg_list*)userdata;
+	pa_source_info* info = (pa_source_info*)al->info;
+
+	lua_pa_trigger_signal(
+		al->signal_name,
+		al->types,
+		al->info
+	);
+
+	free(info);
+	free(al);
+
+	pthread_mutex_unlock(&pa_state->mutex);
+
+	return NULL;
+}
+
+static void* trigger_signal_3_sink(void* userdata) {
+	arg_list* al = (arg_list*)userdata;
+	pa_sink_info* info = (pa_sink_info*)al->info;
+
+	lua_pa_trigger_signal(
+		al->signal_name,
+		al->types,
+		al->info
+	);
+
+	free(info);
+	free(al);
+
+	pthread_mutex_unlock(&pa_state->mutex);
+
+	return NULL;
+}
+
+static void signal_sink_info_cb(pa_context* c __attribute__((unused)), const pa_sink_info* info, int eol, void* userdata __attribute__((unused))) {
 	if (eol < 0 || !info || !pa_state || !pa_state->mainloop) return;
 
-	if (!eol)
-		lua_pa_trigger_signal(
-			"pulseaudio::sink_change",
-			"ssiib",
-			info->description,
-			info->name,
-			info->index,
-			(int)round(100 * pow(10, pa_sw_volume_to_dB(pa_cvolume_avg(&info->volume)) / 60)),
-			info->mute
-		);
+	if (!eol) {
+		arg_list* al = malloc(sizeof(arg_list));
+
+		al->signal_name = "pulseaudio::sink_change";
+		al->types = "ssiib";
+		al->info = deep_copy_sink_info(info);
+		pthread_mutex_lock(&pa_state->mutex);
+		pthread_create(&pa_state->thread, NULL, trigger_signal_7_sink, al);
+		pthread_detach(pa_state->thread);
+	}
 
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void signal_sink_new_cb(pa_context* c, const pa_sink_info* info, int eol, void* userdata) {
+static void signal_sink_new_cb(pa_context* c __attribute__((unused)), const pa_sink_info* info, int eol, void* userdata __attribute__((unused))) {
 	if (eol < 0 || !info || !pa_state || !pa_state->mainloop) return;
 
 	if (!eol) {
@@ -487,33 +605,38 @@ static void signal_sink_new_cb(pa_context* c, const pa_sink_info* info, int eol,
 		active_sinks[num_sinks].name = strdup(info->name);
 		num_sinks++;
 
-		lua_pa_trigger_signal(
-			"pulseaudio::sink_new",
-			"u",
-			info
-		);
+		arg_list* al = malloc(sizeof(arg_list));
+
+		al->signal_name = "pulseaudio::sink_new";
+		al->types = "u";
+		al->info = deep_copy_sink_info(info);
+
+		pthread_mutex_lock(&pa_state->mutex);
+		pthread_create(&pa_state->thread, NULL, trigger_signal_3_sink, al);
+		pthread_detach(pa_state->thread);
+
 	}
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void signal_source_info_cb(pa_context* c, const pa_source_info* info, int eol, void* userdata) {
+static void signal_source_info_cb(pa_context* c __attribute__((unused)), const pa_source_info* info, int eol, void* userdata __attribute__((unused))) {
 	if (eol < 0 || !info || !pa_state || !pa_state->mainloop) return;
 
-	if (!eol)
-		lua_pa_trigger_signal(
-			"pulseaudio::source_change",
-			"ssiib",
-			info->description,
-			info->name,
-			info->index,
-			(int)round(100 * pow(10, pa_sw_volume_to_dB(pa_cvolume_avg(&info->volume)) / 60)),
-			info->mute
-		);
+	if (!eol) {
+		arg_list* al = malloc(sizeof(arg_list));
+
+		al->signal_name = "pulseaudio::source_change";
+		al->types = "ssiib";
+		al->info = deep_copy_source_info(info);
+		pthread_mutex_lock(&pa_state->mutex);
+		pthread_create(&pa_state->thread, NULL, trigger_signal_7_source, al);
+		pthread_detach(pa_state->thread);
+	}
 
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void signal_source_new_cb(pa_context* c, const pa_source_info* info, int eol, void* userdata) {
+static void signal_source_new_cb(pa_context* c __attribute__((unused)), const pa_source_info* info, int eol, void* userdata __attribute__((unused))) {
 	if (eol < 0 || !info || !pa_state || !pa_state->mainloop) return;
 
 	if (!eol) {
@@ -523,16 +646,20 @@ static void signal_source_new_cb(pa_context* c, const pa_source_info* info, int 
 		active_sources[num_sources].name = strdup(info->name);
 		num_sources++;
 
-		lua_pa_trigger_signal(
-			"pulseaudio::source_new",
-			"o",
-			info
-		);
+		arg_list* al = malloc(sizeof(arg_list));
+
+		al->signal_name = "pulseaudio::source_new";
+		al->types = "o";
+		al->info = deep_copy_source_info(info);
+
+		pthread_mutex_lock(&pa_state->mutex);
+		pthread_create(&pa_state->thread, NULL, trigger_signal_3_source, al);
+		pthread_detach(pa_state->thread);
 	}
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void source_info_cb(pa_context* c, const pa_source_info* info, int eol, void* userdata) {
+static void source_info_cb(pa_context* c __attribute__((unused)), const pa_source_info* info, int eol, void* userdata) {
 	if (eol < 0 || !info || !pa_state || !pa_state->mainloop) return;
 
 	lua_State* L = (lua_State*)userdata;
@@ -544,7 +671,7 @@ static void source_info_cb(pa_context* c, const pa_source_info* info, int eol, v
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void sink_server_info_cb(pa_context* c, const pa_server_info* info, void* userdata) {
+static void sink_server_info_cb(pa_context* c __attribute__((unused)), const pa_server_info* info, void* userdata) {
 	if (!pa_state || !info || !pa_state->mainloop) return;
 
 	lua_State* L = (lua_State*)userdata;
@@ -554,7 +681,7 @@ static void sink_server_info_cb(pa_context* c, const pa_server_info* info, void*
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void source_server_info_cb(pa_context* c, const pa_server_info* info, void* userdata) {
+static void source_server_info_cb(pa_context* c __attribute__((unused)), const pa_server_info* info, void* userdata) {
 	if (!pa_state || !info || !pa_state->mainloop) return;
 
 	lua_State* L = (lua_State*)userdata;
@@ -564,7 +691,7 @@ static void source_server_info_cb(pa_context* c, const pa_server_info* info, voi
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void default_sink_info_cb(pa_context* c, const pa_sink_info* info, int eol, void* userdata) {
+static void default_sink_info_cb(pa_context* c __attribute__((unused)), const pa_sink_info* info, int eol, void* userdata) {
 	if (eol < 0 || !info || !pa_state || !pa_state->mainloop) return;
 
 	lua_State* L = (lua_State*)userdata;
@@ -575,7 +702,7 @@ static void default_sink_info_cb(pa_context* c, const pa_sink_info* info, int eo
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void default_source_info_cb(pa_context* c, const pa_source_info* info, int eol, void* userdata) {
+static void default_source_info_cb(pa_context* c __attribute__((unused)), const pa_source_info* info, int eol, void* userdata) {
 	if (eol < 0 || !info || !pa_state || !pa_state->mainloop) return;
 
 	lua_State* L = (lua_State*)userdata;
@@ -648,7 +775,10 @@ static void lua_pa_trigger_signal(const char* signal_name, const char* types, ..
 				argc++;
 			}
 
-			do_pcall_execute = argc;
+			if (lua_pcall(L, argc, 0, 0) != 0) {
+				lua_pushstring(L, "Error in signal handler \n");
+				lua_error(L);
+			}
 		}
 	}
 
@@ -673,17 +803,21 @@ static void lua_pa_subscribe_cb(pa_context* c, pa_subscription_event_type_t type
 						sink_name_copy = strdup(active_sinks[i].name);
 					}
 
-					lua_pa_trigger_signal(
-						"pulseaudio::sink_remove",
-						"s",
-						sink_name_copy
-					);
+					arg_list* al = malloc(sizeof(arg_list));
+
+					al->signal_name = "pulseaudio::sink_remove";
+					al->types = "s";
+					al->info = sink_name_copy;
+
+					pthread_mutex_lock(&pa_state->mutex);
+					pthread_create(&pa_state->thread, NULL, trigger_signal_3, al);
+					pthread_detach(pa_state->thread);
 
 					if (active_sinks[i].name != NULL)
 						active_sinks[i].name = NULL;
 
 
-					for (int j = i; j < num_sinks - 1; ++j)
+					for (size_t j = i; j < num_sinks - 1; ++j)
 						active_sinks[j] = active_sinks[j + 1];
 
 					num_sinks--;
@@ -721,16 +855,20 @@ static void lua_pa_subscribe_cb(pa_context* c, pa_subscription_event_type_t type
 						source_name_copy = strdup(active_sources[i].name);
 					}
 
-					lua_pa_trigger_signal(
-						"pulseaudio::source_remove",
-						"s",
-						source_name_copy
-					);
+					arg_list* al = malloc(sizeof(arg_list));
+
+					al->signal_name = "pulseaudio::source_remove";
+					al->types = "s";
+					al->info = source_name_copy;
+
+					pthread_mutex_lock(&pa_state->mutex);
+					pthread_create(&pa_state->thread, NULL, trigger_signal_3, al);
+					pthread_detach(pa_state->thread);
 
 					if (active_sources[i].name != NULL)
 						active_sources[i].name = NULL;
 
-					for (int j = i; j < num_sources - 1; ++j)
+					for (size_t j = i; j < num_sources - 1; ++j)
 						active_sources[j] = active_sources[j + 1];
 
 					num_sources--;
@@ -764,14 +902,15 @@ static int pa_init( ) {
 	if (!pa_state->mainloop) {
 		free(pa_state);
 		pa_state = NULL;
+		return -1;
 	}
 
-	pa_state->mainloop_api = pa_threaded_mainloop_get_api(pa_state->mainloop);
-	pa_state->ctx = pa_context_new(pa_state->mainloop_api, "Lua Pulseaudio");
+	pa_state->ctx = pa_context_new(pa_threaded_mainloop_get_api(pa_state->mainloop), "Lua Pulseaudio");
 	if (!pa_state->ctx) {
 		pa_threaded_mainloop_free(pa_state->mainloop);
 		free(pa_state);
 		pa_state = NULL;
+		return -1;
 	}
 
 	pa_context_set_state_callback(pa_state->ctx, context_state_cb, NULL);
@@ -801,7 +940,7 @@ static int pa_init( ) {
 	pa_context_set_subscribe_callback(pa_state->ctx, lua_pa_subscribe_cb, NULL);
 	pa_threaded_mainloop_unlock(pa_state->mainloop);
 
-	return 1;
+	return 0;
 }
 
 static int lua_pa_cleanup(lua_State* L) {
@@ -810,6 +949,7 @@ static int lua_pa_cleanup(lua_State* L) {
 			pa_context_disconnect(pa_state->ctx);
 			pa_context_unref(pa_state->ctx);
 		}
+		pa_threaded_mainloop_stop(pa_state->mainloop);
 		if (pa_state->mainloop)
 			pa_threaded_mainloop_free(pa_state->mainloop);
 		free(pa_state);
@@ -820,7 +960,7 @@ static int lua_pa_cleanup(lua_State* L) {
 	return 1;
 }
 
-static void fill_active_sinks(pa_context* c, const pa_sink_info* info, int eol, void* userdata) {
+static void fill_active_sinks(pa_context* c __attribute__((unused)), const pa_sink_info* info, int eol, void* userdata __attribute__((unused))) {
 	if (eol < 0 || !pa_state || !pa_state->mainloop) return;
 
 	if (!eol) {
@@ -835,7 +975,7 @@ static void fill_active_sinks(pa_context* c, const pa_sink_info* info, int eol, 
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
 }
 
-static void fill_active_sources(pa_context* c, const pa_source_info* info, int eol, void* userdata) {
+static void fill_active_sources(pa_context* c __attribute__((unused)), const pa_source_info* info, int eol, void* userdata __attribute__((unused))) {
 	if (eol < 0 || !pa_state || !pa_state->mainloop) return;
 
 	if (!eol) {
@@ -847,6 +987,12 @@ static void fill_active_sources(pa_context* c, const pa_source_info* info, int e
 	}
 
 	pa_threaded_mainloop_signal(pa_state->mainloop, 0);
+}
+
+static int lua_quit(lua_State* L) {
+	lua_pa_cleanup(L);
+	puts("Lua exited, exiting now...\n");
+	return 0;
 }
 
 static const struct luaL_Reg lua_pa_funcs[] = {
@@ -867,11 +1013,20 @@ static const struct luaL_Reg lua_pa_funcs[] = {
 
 int luaopen_lua_pa(lua_State* L) {
 	luaL_newlib(L, lua_pa_funcs);
-	pa_init( );
 
-	pthread_t t;
+	void* ud __attribute__((unused)) = lua_newuserdata(L, 0);
 
-	pthread_create(&t, NULL, *check_for_pcall_workaround, (void*)L);
+	luaL_newmetatable(L, "lua_quit");
+	lua_pushcfunction(L, lua_quit);
+	lua_setfield(L, -2, "__gc");
+	lua_setmetatable(L, -2);
+
+	lua_setfield(L, -2, "__finalizer");
+
+	if (pa_init( ) != 0) {
+		luaL_error(L, "Error initializing pulseaudio\n");
+		return -1;
+	}
 
 	pa_threaded_mainloop_lock(pa_state->mainloop);
 

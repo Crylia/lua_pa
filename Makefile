@@ -1,7 +1,7 @@
 # Compiler and Flags
 CC = gcc
-CFLAGS = -Wall -Wextra -g -fPIC -I/usr/include/pulseaudio -I/usr/include/lua5.3
-LDFLAGS = -lpulse -llua5.3 -lm
+CFLAGS = -Wall -Wextra -g -fPIC -I/usr/include/pulseaudio -I/usr/include/lua
+LDFLAGS = -lpulse -llua -lm
 
 # Project files and directories
 SRC_DIR = src
