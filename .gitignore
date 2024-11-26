@@ -6,3 +6,4 @@
 /obj
 /.vscode
 lua_pa.so
+src/lua_pa.o

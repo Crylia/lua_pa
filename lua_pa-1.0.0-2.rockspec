@@ -1,9 +1,9 @@
 rockspec_format = '3.0'
 
 package = 'lua_pa'
-version = '1.0.0-1'
+version = '1.0.0-2'
 source = {
-   url = 'https://github.com/Crylia/lua_pa',
+   url = 'https://github.com/Crylia/lua_pa/archive/refs/tags/1.0.0.zip',
 }
 description = {
    summary = 'Pulseaudio bindings for lua',
@@ -40,7 +40,7 @@ build = {
    },
    install = {
       bin = {
-         'bin/lua_pa.so',
+         'lua_pa.so',
       },
    },
 }
