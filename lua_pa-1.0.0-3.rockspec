@@ -1,9 +1,10 @@
 rockspec_format = '3.0'
 
 package = 'lua_pa'
-version = '1.0.0-2'
+version = '1.0.0-3'
 source = {
    url = 'https://github.com/Crylia/lua_pa/archive/refs/tags/1.0.0.zip',
+   dir = 'lua_pa-1.0.0'
 }
 description = {
    summary = 'Pulseaudio bindings for lua',

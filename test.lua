@@ -1,6 +1,6 @@
 local socket = require 'socket'
 
-package.cpath = package.cpath .. ';./bin/?.so'
+--package.cpath = package.cpath .. ';./bin/?.so'
 local lua_pa = require 'lua_pa'
 
 -- TEST getting all sinks
