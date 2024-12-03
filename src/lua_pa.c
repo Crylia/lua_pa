@@ -449,6 +449,52 @@ static int lua_pa_get_default_source(lua_State* L) {
 	return 1;
 }
 
+static int lua_pa_get_sink_by_name(lua_State* L) {
+	if (!pa_state || !pa_state->mainloop) {
+		lua_pushstring(L, "PulseAudio not initialized.");
+		lua_error(L);
+	}
+
+	const char* name = luaL_checkstring(L, 1);
+
+	if (name == NULL)
+		return 0;
+
+	pa_threaded_mainloop_lock(pa_state->mainloop);
+
+	pa_operation* op = pa_context_get_sink_info_by_name(pa_state->ctx, name, sink_info_cb, L);
+
+	while (pa_operation_get_state(op) == PA_OPERATION_RUNNING)
+		pa_threaded_mainloop_wait(pa_state->mainloop);
+	pa_operation_unref(op);
+	pa_threaded_mainloop_unlock(pa_state->mainloop);
+
+	return 1;
+}
+
+static int lua_pa_get_source_by_name(lua_State* L) {
+	if (!pa_state || !pa_state->mainloop) {
+		lua_pushstring(L, "PulseAudio not initialized.");
+		lua_error(L);
+	}
+
+	const char* name = luaL_checkstring(L, 1);
+
+	if (name == NULL)
+		return 0;
+
+	pa_threaded_mainloop_lock(pa_state->mainloop);
+
+	pa_operation* op = pa_context_get_source_info_by_name(pa_state->ctx, name, source_info_cb, L);
+
+	while (pa_operation_get_state(op) == PA_OPERATION_RUNNING)
+		pa_threaded_mainloop_wait(pa_state->mainloop);
+	pa_operation_unref(op);
+	pa_threaded_mainloop_unlock(pa_state->mainloop);
+
+	return 1;
+}
+
 static void context_state_cb(pa_context* c, void* userdata __attribute__((unused))) {
 	if (!pa_state || !pa_state->mainloop) return;
 
@@ -1007,6 +1053,8 @@ static const struct luaL_Reg lua_pa_funcs[] = {
 	{"set_default_source", lua_pa_set_default_source},
 	{"set_mute_sink", lua_pa_set_mute_sink},
 	{"set_mute_source", lua_pa_set_mute_source},
+	{"get_sink_by_name", lua_pa_get_sink_by_name},
+	{"get_source_by_name", lua_pa_get_source_by_name},
 	{"connect_signal", lua_pa_connect_signal},
 	{ NULL, NULL },
 };

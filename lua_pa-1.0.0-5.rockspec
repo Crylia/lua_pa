@@ -1,7 +1,7 @@
 rockspec_format = '3.0'
 
 package = 'lua_pa'
-version = '1.0.0-3'
+version = '1.0.0-5'
 source = {
    url = 'https://github.com/Crylia/lua_pa/archive/refs/tags/1.0.0.zip',
    dir = 'lua_pa-1.0.0'
